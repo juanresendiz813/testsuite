@@ -146,16 +146,8 @@ Two recipes are worked out in detail in
 (`projectbluefin/testsuite#499`), while `toggle-devmode` still has none and is
 deliberately uncovered (`projectbluefin/testsuite#500`).
 
-The same runtime-gate pattern covers image-content contracts, not only recipes.
-`common_dconf.feature` asserts the Logo Menu -> `custom-command-list` swap that
-`projectbluefin/common` ships in its `enabled-extensions` override and distro
-dconf default; images built on an older common layer (`ghcr.io/ublue-os/bluefin`
-still enables `logomenu@aryan_k` and has no custom-command-list dconf keys) fail
-those two scenarios for a product reason. They are tagged
-`@requires_custom_command_list`: `environment.py` probes
-`gsettings get org.gnome.shell enabled-extensions | grep -q 'custom-command-list@storageb.github.com'`
-once per run and skips while the image's default lacks the extension. Do not
-pair it with `@pending`, which masks the gate.
+Image-content contracts use the same gate: `@requires_custom_command_list` skips
+the Logo Menu swap scenarios on images predating it (Classic). Never add `@pending`.
 
 ### uupd conditional suppression coverage
 
