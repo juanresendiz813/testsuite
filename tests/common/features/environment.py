@@ -102,18 +102,23 @@ def _has_custom_command_list(context) -> bool:
     common layer, e.g. ``ghcr.io/ublue-os/bluefin`` (Classic), still ship
     Logo Menu and carry no custom-command-list dconf keys, so the scenarios
     asserting that swap fail there for a product reason rather than a defect.
-    Probe the image's own ``enabled-extensions`` default: scenarios tagged
+    Probe the image's effective ``enabled-extensions`` value (``gsettings
+    get``, which a user override can change): scenarios tagged
     ``@requires_custom_command_list`` skip until the image ships the
-    contract, then activate automatically.
+    contract, then activate automatically. A failing ``gsettings`` (missing
+    schema, broken dconf/D-Bus, no binary) is a defect rather than a product
+    gap, so it does not skip — the scenarios run and report it.
     """
     cached = getattr(context, "has_custom_command_list", None)
     if cached is not None:
         return cached
-    _, returncode = run_ssh(
-        context,
-        "gsettings get org.gnome.shell enabled-extensions | grep -q 'custom-command-list@storageb.github.com'",
-    )
-    context.has_custom_command_list = returncode == 0
+    stdout, returncode = run_ssh(context, "gsettings get org.gnome.shell enabled-extensions")
+    if returncode != 0:
+        context.has_custom_command_list = True
+    else:
+        context.has_custom_command_list = (
+            "custom-command-list@storageb.github.com" in (stdout or "")
+        )
     return context.has_custom_command_list
 
 

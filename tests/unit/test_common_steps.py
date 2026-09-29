@@ -283,8 +283,18 @@ class TestCommonEnvironmentRequiresToggleAction:
 
 
 class TestCommonEnvironmentRequiresCustomCommandList:
+    @staticmethod
+    def _stub_run_ssh(m, stdout, returncode, calls=None):
+        def _run_ssh(context, cmd, **kwargs):
+            if calls is not None:
+                calls.append(cmd)
+            return stdout, returncode
+
+        m.run_ssh = _run_ssh
+
     def test_skips_when_image_does_not_enable_custom_command_list(self):
-        m = _import_common_environment(run_ssh_returncode=1)
+        m = _import_common_environment()
+        self._stub_run_ssh(m, "['logomenu@aryan_k']", 0)
         context = _ctx(
             is_bluefin_image=True, has_brew=True, has_toggle_action=True, has_custom_command_list=None
         )
@@ -296,7 +306,8 @@ class TestCommonEnvironmentRequiresCustomCommandList:
         assert context.has_custom_command_list is False
 
     def test_allows_when_image_enables_custom_command_list(self):
-        m = _import_common_environment(run_ssh_returncode=0)
+        m = _import_common_environment()
+        self._stub_run_ssh(m, "['custom-command-list@storageb.github.com']", 0)
         context = _ctx(
             is_bluefin_image=True, has_brew=True, has_toggle_action=True, has_custom_command_list=None
         )
@@ -307,18 +318,30 @@ class TestCommonEnvironmentRequiresCustomCommandList:
         assert scenario.skip_message is None
         assert context.has_custom_command_list is True
 
-    def test_probes_enabled_extensions_default(self):
-        m = _import_common_environment(run_ssh_returncode=0)
+    def test_does_not_skip_when_gsettings_fails(self):
+        """A broken gsettings is a defect, not a product gap: run the scenarios."""
+        m = _import_common_environment()
+        self._stub_run_ssh(m, "No such schema 'org.gnome.shell'", 1)
+        context = _ctx(
+            is_bluefin_image=True, has_brew=True, has_toggle_action=True, has_custom_command_list=None
+        )
+        scenario = _Scenario(["requires_custom_command_list"])
+
+        m.before_scenario(context, scenario)
+
+        assert scenario.skip_message is None
+        assert context.has_custom_command_list is True
+
+    def test_probes_enabled_extensions_without_shell_pipeline(self):
+        m = _import_common_environment()
         calls = []
-        m.run_ssh = lambda context, cmd, **kw: (calls.append(cmd), ("", 0))[1]
+        self._stub_run_ssh(m, "['custom-command-list@storageb.github.com']", 0, calls)
         context = _ctx(has_custom_command_list=None)
 
         result = m._has_custom_command_list(context)
 
         assert result is True
-        assert calls == [
-            "gsettings get org.gnome.shell enabled-extensions | grep -q 'custom-command-list@storageb.github.com'"
-        ]
+        assert calls == ["gsettings get org.gnome.shell enabled-extensions"]
 
 
 class TestCommonEnvironmentBootcUnifiedStorage:

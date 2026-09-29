@@ -13,8 +13,9 @@ Feature: Bluefin common dconf and GSettings defaults
     * Last command output contains "custom-command-list@storageb.github.com"
 
   # Both scenarios assert the Logo Menu -> custom-command-list swap shipped by
-  # projectbluefin/common; they skip on images whose enabled-extensions default
-  # predates it (e.g. ghcr.io/ublue-os/bluefin) and activate once it lands.
+  # projectbluefin/common; they skip on images whose effective
+  # enabled-extensions value predates it (e.g. ghcr.io/ublue-os/bluefin) and
+  # activate once it lands.
   @requires_custom_command_list
   Scenario: legacy Logo Menu extension is not enabled
     * Run SSH command: "gsettings get org.gnome.shell enabled-extensions"
