@@ -282,6 +282,45 @@ class TestCommonEnvironmentRequiresToggleAction:
         assert calls == ["ujust --show toggle-updates 2>/dev/null | grep -q 'ACTION_VALUE'"]
 
 
+class TestCommonEnvironmentRequiresCustomCommandList:
+    def test_skips_when_image_does_not_enable_custom_command_list(self):
+        m = _import_common_environment(run_ssh_returncode=1)
+        context = _ctx(
+            is_bluefin_image=True, has_brew=True, has_toggle_action=True, has_custom_command_list=None
+        )
+        scenario = _Scenario(["requires_custom_command_list"])
+
+        m.before_scenario(context, scenario)
+
+        assert scenario.skip_message == "custom-command-list extension not enabled on this image"
+        assert context.has_custom_command_list is False
+
+    def test_allows_when_image_enables_custom_command_list(self):
+        m = _import_common_environment(run_ssh_returncode=0)
+        context = _ctx(
+            is_bluefin_image=True, has_brew=True, has_toggle_action=True, has_custom_command_list=None
+        )
+        scenario = _Scenario(["requires_custom_command_list"])
+
+        m.before_scenario(context, scenario)
+
+        assert scenario.skip_message is None
+        assert context.has_custom_command_list is True
+
+    def test_probes_enabled_extensions_default(self):
+        m = _import_common_environment(run_ssh_returncode=0)
+        calls = []
+        m.run_ssh = lambda context, cmd, **kw: (calls.append(cmd), ("", 0))[1]
+        context = _ctx(has_custom_command_list=None)
+
+        result = m._has_custom_command_list(context)
+
+        assert result is True
+        assert calls == [
+            "gsettings get org.gnome.shell enabled-extensions | grep -q 'custom-command-list@storageb.github.com'"
+        ]
+
+
 class TestCommonEnvironmentBootcUnifiedStorage:
     def test_restarts_service_when_result_is_not_success(self):
         m = _import_common_environment(run_ssh_returncode=0)

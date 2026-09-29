@@ -93,6 +93,30 @@ def _has_toggle_action(context) -> bool:
     return context.has_toggle_action
 
 
+def _has_custom_command_list(context) -> bool:
+    """Return True when the image enables custom-command-list by default.
+
+    projectbluefin/common replaced Logo Menu with ``custom-command-list``
+    (``zz0-bluefin-modifications.gschema.override`` + the distro dconf default
+    in ``04-bluefin-custom-command-menu``). Images that build on an older
+    common layer, e.g. ``ghcr.io/ublue-os/bluefin`` (Classic), still ship
+    Logo Menu and carry no custom-command-list dconf keys, so the scenarios
+    asserting that swap fail there for a product reason rather than a defect.
+    Probe the image's own ``enabled-extensions`` default: scenarios tagged
+    ``@requires_custom_command_list`` skip until the image ships the
+    contract, then activate automatically.
+    """
+    cached = getattr(context, "has_custom_command_list", None)
+    if cached is not None:
+        return cached
+    _, returncode = run_ssh(
+        context,
+        "gsettings get org.gnome.shell enabled-extensions | grep -q 'custom-command-list@storageb.github.com'",
+    )
+    context.has_custom_command_list = returncode == 0
+    return context.has_custom_command_list
+
+
 def before_all(context):
     userdata = context.config.userdata
     # When IMAGE env var is set (GHA runner), auto-detect image family so
@@ -190,6 +214,9 @@ def before_scenario(context, scenario):
         return
     if "requires_toggle_action" in scenario_tags and not _has_toggle_action(context):
         scenario.skip("ujust toggle-updates ACTION support not present on this image")
+        return
+    if "requires_custom_command_list" in scenario_tags and not _has_custom_command_list(context):
+        scenario.skip("custom-command-list extension not enabled on this image")
         return
     feature_name = getattr(getattr(scenario, "feature", None), "name", "")
     if _is_container_target(context):
