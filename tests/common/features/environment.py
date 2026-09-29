@@ -94,7 +94,7 @@ def _has_toggle_action(context) -> bool:
 
 
 def _has_custom_command_list(context) -> bool:
-    """Return True when the image enables custom-command-list by default.
+    """Return True when the effective enabled-extensions lists custom-command-list.
 
     projectbluefin/common replaced Logo Menu with ``custom-command-list``
     (``zz0-bluefin-modifications.gschema.override`` + the distro dconf default
