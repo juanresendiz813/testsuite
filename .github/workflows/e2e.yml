@@ -559,6 +559,13 @@ jobs:
               # Use '*' (no-password, not locked) so pam_unix account check passes
               printf 'bluefin-test:*:19000:0:99999:7:::\n' | sudo tee -a "${DEP}/etc/shadow"
               printf 'bluefin-test:x:%d:\n' "${BFT_UID}" | sudo tee -a "${DEP}/etc/group"
+              # Add it to wheel like a real first-run (administrator) account:
+              # common's org.ublue.privileged.user.setup polkit rule grants
+              # wheel only (projectbluefin/common#1108), so without it the
+              # 99-privileged.sh hook's pkexec is denied and
+              # ublue-user-setup.service fails. Appends to the member list,
+              # with a comma when wheel already has members.
+              sudo sed -i -E '/^wheel:/{s/([^:])$/\1,bluefin-test/;s/:$/:bluefin-test/}' "${DEP}/etc/group"
             fi
 
             # sshd drop-in: named 00- so it sorts BEFORE 20-systemd-userdb.conf.
