@@ -140,7 +140,14 @@ def before_all(context):
     userdata = context.config.userdata
     # When IMAGE env var is set (GHA runner), auto-detect image family so
     # @bluefin scenarios can be skipped gracefully on non-Bluefin images.
-    image_ref = os.environ.get("IMAGE", userdata.get("image", ""))
+    # Prefer BASE_IMAGE: on composed runs IMAGE is the derived
+    # ghcr.io/<owner>/testsuite-e2e:run-<id> ref, which carries neither the
+    # family nor the org of the image under test (#907).
+    image_ref = (
+        os.environ.get("BASE_IMAGE")
+        or os.environ.get("IMAGE")
+        or userdata.get("image", "")
+    )
     context.is_bluefin_image = _is_bluefin_image(image_ref) if image_ref else True
     context.is_dakota_image = _is_dakota_image(image_ref) if image_ref else False
     context.is_projectbluefin_image = _is_projectbluefin_image(image_ref)
