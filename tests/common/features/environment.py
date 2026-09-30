@@ -46,6 +46,17 @@ def _is_dakota_image(image: str) -> bool:
     return "dakota" in name
 
 
+def _is_projectbluefin_image(image: str) -> bool:
+    """Return True if the image reference is published under the projectbluefin org.
+
+    Matches the org path segment only (e.g. "projectbluefin" in
+    "ghcr.io/projectbluefin/bluefin-lts@sha256:..."), so Classic under
+    ghcr.io/ublue-os, a bare image name and an empty ref all return False.
+    """
+    parts = image.lower().split("/")
+    return len(parts) >= 2 and parts[-2] == "projectbluefin"
+
+
 def _scenario_tags(scenario) -> set[str]:
     return set(getattr(scenario, "effective_tags", scenario.tags))
 
@@ -107,7 +118,10 @@ def _has_custom_command_list(context) -> bool:
     ``@requires_custom_command_list`` skip until the image ships the
     contract, then activate automatically. A failing ``gsettings`` (missing
     schema, broken dconf/D-Bus, no binary) is a defect rather than a product
-    gap, so it does not skip — the scenarios run and report it.
+    gap, so it does not skip — the scenarios run and report it. Images under
+    ``ghcr.io/projectbluefin/*`` own the contract, so ``before_scenario`` never
+    consults this probe for them: dropping the extension there fails loudly.
+    An unknown image ref falls back to the probe.
     """
     cached = getattr(context, "has_custom_command_list", None)
     if cached is not None:
@@ -129,6 +143,7 @@ def before_all(context):
     image_ref = os.environ.get("IMAGE", userdata.get("image", ""))
     context.is_bluefin_image = _is_bluefin_image(image_ref) if image_ref else True
     context.is_dakota_image = _is_dakota_image(image_ref) if image_ref else False
+    context.is_projectbluefin_image = _is_projectbluefin_image(image_ref)
     context.vm_ip = _first_value(
         userdata.get("vm_ip", ""),
         userdata.get("host", ""),
@@ -220,7 +235,11 @@ def before_scenario(context, scenario):
     if "requires_toggle_action" in scenario_tags and not _has_toggle_action(context):
         scenario.skip("ujust toggle-updates ACTION support not present on this image")
         return
-    if "requires_custom_command_list" in scenario_tags and not _has_custom_command_list(context):
+    if (
+        "requires_custom_command_list" in scenario_tags
+        and not getattr(context, "is_projectbluefin_image", False)
+        and not _has_custom_command_list(context)
+    ):
         scenario.skip("custom-command-list extension not enabled on this image")
         return
     feature_name = getattr(getattr(scenario, "feature", None), "name", "")

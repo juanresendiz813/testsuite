@@ -292,11 +292,13 @@ class TestCommonEnvironmentRequiresCustomCommandList:
 
         m.run_ssh = _run_ssh
 
-    def test_skips_when_image_does_not_enable_custom_command_list(self):
+    def test_skips_on_ublue_os_image_when_extension_is_absent(self):
+        """Classic (ghcr.io/ublue-os) predates the contract: the probe decides."""
         m = _import_common_environment()
         self._stub_run_ssh(m, "['logomenu@aryan_k']", 0)
         context = _ctx(
-            is_bluefin_image=True, has_brew=True, has_toggle_action=True, has_custom_command_list=None
+            is_bluefin_image=True, is_projectbluefin_image=False,
+            has_brew=True, has_toggle_action=True, has_custom_command_list=None,
         )
         scenario = _Scenario(["requires_custom_command_list"])
 
@@ -305,11 +307,29 @@ class TestCommonEnvironmentRequiresCustomCommandList:
         assert scenario.skip_message == "custom-command-list extension not enabled on this image"
         assert context.has_custom_command_list is False
 
+    def test_does_not_skip_on_projectbluefin_image_when_extension_is_absent(self):
+        """projectbluefin owns the contract: no probe, no skip, a regression fails loudly."""
+        m = _import_common_environment()
+        calls = []
+        self._stub_run_ssh(m, "['logomenu@aryan_k']", 0, calls)
+        context = _ctx(
+            is_bluefin_image=True, is_projectbluefin_image=True,
+            has_brew=True, has_toggle_action=True, has_custom_command_list=None,
+        )
+        scenario = _Scenario(["requires_custom_command_list"])
+
+        m.before_scenario(context, scenario)
+
+        assert scenario.skip_message is None
+        assert calls == []
+        assert context.has_custom_command_list is None
+
     def test_allows_when_image_enables_custom_command_list(self):
         m = _import_common_environment()
         self._stub_run_ssh(m, "['custom-command-list@storageb.github.com']", 0)
         context = _ctx(
-            is_bluefin_image=True, has_brew=True, has_toggle_action=True, has_custom_command_list=None
+            is_bluefin_image=True, is_projectbluefin_image=False,
+            has_brew=True, has_toggle_action=True, has_custom_command_list=None,
         )
         scenario = _Scenario(["requires_custom_command_list"])
 
@@ -323,7 +343,8 @@ class TestCommonEnvironmentRequiresCustomCommandList:
         m = _import_common_environment()
         self._stub_run_ssh(m, "No such schema 'org.gnome.shell'", 1)
         context = _ctx(
-            is_bluefin_image=True, has_brew=True, has_toggle_action=True, has_custom_command_list=None
+            is_bluefin_image=True, is_projectbluefin_image=False,
+            has_brew=True, has_toggle_action=True, has_custom_command_list=None,
         )
         scenario = _Scenario(["requires_custom_command_list"])
 
@@ -342,6 +363,57 @@ class TestCommonEnvironmentRequiresCustomCommandList:
 
         assert result is True
         assert calls == ["gsettings get org.gnome.shell enabled-extensions"]
+
+
+class TestIsProjectbluefinImage:
+    @pytest.mark.parametrize(
+        "image",
+        [
+            "ghcr.io/projectbluefin/bluefin:stable",
+            "ghcr.io/projectbluefin/bluefin-lts@sha256:abc123",
+            "ghcr.io/PROJECTBLUEFIN/dakota:testing",
+            "projectbluefin/bluefin",
+        ],
+    )
+    def test_matches_projectbluefin_org(self, image):
+        m = _import_common_environment()
+        assert m._is_projectbluefin_image(image) is True
+
+    @pytest.mark.parametrize(
+        "image",
+        [
+            "ghcr.io/ublue-os/bluefin:stable",
+            "ghcr.io/ublue-os/bluefin@sha256:abc123",
+            "ghcr.io/projectbluefin-fork/bluefin:stable",
+            "bluefin:stable",
+            "",
+        ],
+    )
+    def test_rejects_other_orgs_and_unknown_refs(self, image):
+        m = _import_common_environment()
+        assert m._is_projectbluefin_image(image) is False
+
+    @pytest.mark.parametrize(
+        ("image", "expected"),
+        [
+            ("ghcr.io/projectbluefin/bluefin-lts@sha256:abc123", True),
+            ("ghcr.io/ublue-os/bluefin:stable", False),
+            (None, False),
+        ],
+    )
+    def test_before_all_reads_the_image_ref_from_env(self, monkeypatch, image, expected):
+        """An unknown image ref (no IMAGE, no userdata) is not projectbluefin."""
+        m = _import_common_environment()
+        if image is None:
+            monkeypatch.delenv("IMAGE", raising=False)
+        else:
+            monkeypatch.setenv("IMAGE", image)
+        context = _ctx()
+        context.config.userdata = {}
+
+        m.before_all(context)
+
+        assert context.is_projectbluefin_image is expected
 
 
 class TestCommonEnvironmentBootcUnifiedStorage:
