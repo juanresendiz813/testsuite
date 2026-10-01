@@ -1,8 +1,12 @@
-@smoke_suite
+@smoke_suite @requires_installed_extension
 Feature: Bluefin GNOME extension presence
   Validates that all extensions enabled by default in Bluefin are loaded
   and in ENABLED state. A non-1 state means the extension crashed or was
   disabled — which breaks the Bluefin UX.
+
+  # @requires_installed_extension: on an LTS image, which ships a smaller
+  # extension set, a scenario skips when its extension is not installed at
+  # all; an installed-but-disabled extension still fails (environment.py).
 
   # Enabled by default: Bluefin bundled GNOME extensions
 

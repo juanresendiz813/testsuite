@@ -11,6 +11,7 @@ qecore-headless (invoked by the Argo runner) handles:
   - AT-SPI bus bridge
 """
 import os
+import shlex
 import sys
 import traceback
 import re as _re
@@ -309,7 +310,112 @@ OPTIONAL_SCENARIO_TARGETS = {
     "extensions_app": (
         ("desktop", "org.gnome.Extensions.desktop"),
     ),
+    # spd-say ships in speech-dispatcher-utils, which bluefin-lts (CentOS
+    # Stream 10) does not carry; Orca and python3-speechd are still present.
+    "speech": (
+        ("command", "spd-say"),
+    ),
 }
+
+# bluefin-lts ships a smaller GNOME extension set than Bluefin (none of the
+# curated additions from projectbluefin/common#1087), so a "GNOME extension X
+# is enabled" assertion fails there with state=99 (UNINSTALLED) for a product
+# reason rather than a defect. Scenarios tagged @requires_installed_extension
+# skip on an LTS image when the extension they assert is not installed at all;
+# an installed-but-disabled extension (state=6) still fails. Images that own
+# the full Bluefin extension contract never consult the probe, so dropping an
+# extension there fails loudly — the same rule @requires_custom_command_list
+# follows in tests/common/features/environment.py.
+REQUIRES_INSTALLED_EXTENSION_TAG = "requires_installed_extension"
+EXTENSION_ENABLED_STEP = _re.compile(r'GNOME extension "([^"]+)" is enabled')
+SYSTEM_EXTENSION_DIR = "/usr/share/gnome-shell/extensions"
+
+
+def _is_lts_image(image: str) -> bool:
+    """Return True when the image reference is a Bluefin LTS image.
+
+    Matches an ``lts`` segment of the image name (``bluefin-lts``,
+    ``bluefin-lts-hwe``) or a tag that is ``lts`` or starts with ``lts-``
+    (``ghcr.io/ublue-os/bluefin:lts-testing``); ``bluefin:latest`` does not
+    match. Name-based like the ``is_bluefin_image`` / ``is_dakota_image``
+    flags beside it.
+    """
+    ref = image.lower().split("/")[-1].split("@")[0]
+    name, _, tag = ref.partition(":")
+    return "lts" in name.split("-") or tag == "lts" or tag.startswith("lts-")
+
+
+def _extensions_asserted_by(scenario) -> list[str]:
+    """Return the extension UUIDs the scenario's steps assert as enabled.
+
+    Read from the step text, background steps included, so the feature file
+    stays the single source of truth — as ``tests/shared/image_cache.py``
+    does for image references.
+    """
+    steps = getattr(scenario, "all_steps", None)
+    if steps is None:
+        steps = getattr(scenario, "steps", []) or []
+    uuids: list[str] = []
+    for step in steps:
+        for uuid in EXTENSION_ENABLED_STEP.findall(getattr(step, "name", "") or ""):
+            if uuid not in uuids:
+                uuids.append(uuid)
+    return uuids
+
+
+def _image_ships_extension(context, uuid: str) -> bool:
+    """Return False only when the probe positively shows ``uuid`` is absent.
+
+    Probes the system extension directory on the device under test (over SSH
+    from the runner container, locally otherwise), once per UUID. A probe that
+    cannot tell — SSH failure, timeout — counts as installed, so the scenario
+    runs and reports instead of skipping on a transport fault.
+    """
+    cache = getattr(context, "installed_extensions", None)
+    if cache is None:
+        cache = context.installed_extensions = {}
+    if uuid in cache:
+        return cache[uuid]
+    from steps.app_support import _IN_CONTAINER, _ssh_run
+
+    path = f"{SYSTEM_EXTENSION_DIR}/{uuid}"
+    if _IN_CONTAINER:
+        try:
+            returncode = _ssh_run(f"test -d {shlex.quote(path)}").returncode
+        except Exception as exc:  # noqa: BLE001
+            print(f"WARNING: extension probe for {uuid} failed ({exc}); treating it as installed", flush=True)
+            returncode = None
+        shipped = returncode != 1
+    else:
+        shipped = os.path.isdir(path)
+    cache[uuid] = shipped
+    return shipped
+
+
+def _skip_when_extension_not_installed(context, scenario) -> bool:
+    """Skip a ``@requires_installed_extension`` scenario on an LTS image that
+    does not ship the extension it asserts. Returns True when skipped."""
+    tags = set(getattr(scenario, "effective_tags", scenario.tags))
+    if REQUIRES_INSTALLED_EXTENSION_TAG not in tags:
+        return False
+    if not getattr(context, "is_lts_image", False):
+        return False
+    missing = [
+        uuid for uuid in _extensions_asserted_by(scenario)
+        if not _image_ships_extension(context, uuid)
+    ]
+    if not missing:
+        return False
+    reason = (
+        f"@{REQUIRES_INSTALLED_EXTENSION_TAG} — not shipped by this LTS image: "
+        f"{', '.join(missing)}"
+    )
+    try:
+        scenario.skip(reason)
+    except TypeError:
+        scenario.skip()
+    print(f"Skipping {scenario.name}: {reason}", flush=True)
+    return True
 
 
 def before_all(context) -> None:
@@ -508,15 +614,19 @@ def before_all(context) -> None:
     # Detect image family so variant-tagged scenarios can be skipped on the
     # wrong image. Match only the image name component (last path segment before
     # ':' or '@') — the org "projectbluefin" must not be treated as an image name.
-    image_ref = os.environ.get("IMAGE", "")
+    # Prefer BASE_IMAGE: on composed runs IMAGE is the derived
+    # ghcr.io/<owner>/testsuite-e2e:run-<id> ref, which carries no family (#907).
+    image_ref = os.environ.get("BASE_IMAGE") or os.environ.get("IMAGE", "")
     if image_ref:
         _lower = image_ref.lower()
         _name = _lower.split("/")[-1].split(":")[0].split("@")[0]
         context.is_bluefin_image = "bluefin" in _name or "bazzite" in _name
         context.is_dakota_image = "dakota" in _name
+        context.is_lts_image = _is_lts_image(image_ref)
     else:
         context.is_bluefin_image = True  # default to Bluefin when IMAGE is unset
         context.is_dakota_image = False
+        context.is_lts_image = False
 
     try:
         context.optional_scenario_availability = {
@@ -610,6 +720,11 @@ def before_scenario(context, scenario) -> None:
                 scenario.skip()
             print(f"Skipping {scenario.name}: @dakota_only on non-Dakota image", flush=True)
             return
+
+    # Skip @requires_installed_extension scenarios on an LTS image that does
+    # not ship the asserted extension (runtime probe, LTS images only).
+    if _skip_when_extension_not_installed(context, scenario):
+        return
 
     if getattr(context, 'failed_setup', None):
         try:

@@ -1,4 +1,4 @@
-@native_app @smoke_suite
+@native_app @smoke_suite @requires_installed_extension
 Feature: Power status color extension alerts
   Validates the power-status-color@projectbluefin.io GNOME Shell extension
   (projectbluefin/bluefin-bling) correctly alters the Quick Settings power

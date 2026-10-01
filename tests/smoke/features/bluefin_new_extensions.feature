@@ -1,4 +1,4 @@
-@smoke_suite
+@smoke_suite @requires_installed_extension
 Feature: Newly enabled Bluefin GNOME extension stability
   Validates curated extensions enabled by default in Bluefin/Dakota
   (projectbluefin/common#1087) are present, interactive, and do not

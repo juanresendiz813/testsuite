@@ -152,6 +152,7 @@ Set `chunked_enabled: true` once `ghcr.io/projectbluefin/bluefin:latest` ships z
 | `@kde_smoke` | KDE Plasma smoke-suite identifier; used by `e2e.yml` suite registration (#645) |
 | `@informational` | Bake-period tier; scenario runs and reports results but does not gate promotion until promoted to `@critical` |
 | `@requires_cached_image` | Scenario needs the OCI image named in its own steps to be pre-pulled on the DUT; `tests/shared/image_cache.py` probes `podman image exists` from `before_scenario` and skips while it is absent. A **runtime capability gate** like `@requires_brew`, not a non-runnable tag — never pair it with `@pending`/`@future`, which mask it (#501) |
+| `@requires_installed_extension` | Smoke scenario asserting `GNOME extension "<uuid>" is enabled`. On an LTS image (`lts` segment in the image name, or an `lts`/`lts-*` tag) the smoke `environment.py` probes `/usr/share/gnome-shell/extensions/<uuid>` on the DUT from `before_scenario` and skips only when the directory is absent — an installed-but-disabled extension still fails. Images that own the full Bluefin extension set (Bluefin, Dakota, Classic) never consult the probe, so a dropped extension fails loudly there. A runtime capability gate like `@requires_cached_image`; the UUIDs come from the scenario's own step text, background included |
 
 ## Coverage snapshot
 
